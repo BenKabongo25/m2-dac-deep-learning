@@ -73,7 +73,8 @@ HIDDEN_DIM = 20
 MAX_LENGTH = 100
 
 LR = 1e-3
-N_EPOCHS = 50
+N_EPOCHS = 5
+VERBOSE_EVERY = 1
 
 data_trump = DataLoader(
     TrumpDataset(open(PATH+"trump_full_speech.txt","rb").read().decode(),maxlen=1000),
@@ -94,10 +95,11 @@ class TrumpModel(nn.Module):
         self.rnn = RNN(hidden_dim, embedding_dim, vocab_size)
 
     def forward(self, x, h):
-        embeddings = self.embedding(x) # x.size() = (batch, 1), embeddings.size() = (batch, 1, embedding_dim)
-        h = self.rnn(embeddings.permute(1, 0, 2), h).squeeze() # h.size() = (batch, hidden_dim)
-        output = self.rnn.decode(h) # output.size() = (batch, vocab_size)
-        return h, output
+        embeddings = self.embedding(x)  # x.size() = (batch, length), embeddings.size() = (batch, length, embedding_dim)
+        if embeddings.ndim == 2: embeddings = embeddings.unsqueeze(1)
+        hs = self.rnn(embeddings.transpose(0, 1), h) # hs.size() = (length, batch, hidden_dim)
+        output = self.rnn.decode(hs) # output.size() = (length, batch, vocab_size)
+        return hs, output
 
     def fit(self, dataloader, lr=LR, n_epochs=N_EPOCHS, verbose=True):
         loss_fn = nn.CrossEntropyLoss()
@@ -106,40 +108,44 @@ class TrumpModel(nn.Module):
         for epoch_id in tqdm(range(n_epochs), "Training"):
             
             total_loss = 0
-            for (seq, pred) in dataloader:
-                seq, pred = seq.to(device), pred.to(device)
-                batch, length = seq.size(0), seq.size(1)
+            for (source, target) in dataloader:
+                source, target = source.to(device), target.to(device)
                 total_loss = 0
-                h = torch.zeros(batch, self.hidden_dim).to(device)
-                for i in range(length):
-                    h, output = self.forward(seq[:, i].unsqueeze(1), h)
-                    loss = loss_fn(output, pred[:, i].squeeze())
-                    total_loss += loss.item()
+                h0 = torch.zeros(source.size(0), self.hidden_dim).to(device)
+                _, output = model(source, h0)
+                loss = loss_fn(
+                    output.permute(1, 0, 2).reshape(-1, self.vocab_size), 
+                    target.reshape(-1)
+                )
+                total_loss += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
+            total_loss /= len(dataloader)
             writer.add_scalar("Loss/train", total_loss, epoch_id)
 
-            if verbose and epoch_id % 10 == 0:
+            if verbose and epoch_id % VERBOSE_EVERY == 0:
                 print(f"[Epoch {epoch_id + 1}/{n_epochs}] : loss = {total_loss:>8f}")
-                start = list(lettre2id.keys())
+                start = list(lettre2id.keys())[:10]
                 texts = model.generate(start, length=50)
-                print("===============================================")
+                print()
                 for s, text in zip(start, texts):
                     print(s + text + "\n")
 
     def generate(self, start=[''], length=MAX_LENGTH):
-        seq = torch.tensor([[lettre2id[c]] for c in start])
-        prediction = seq[:, -1]
-        all_predictions = []
+        source = torch.tensor([[lettre2id[c]] for c in start])
+        batch_size = source.size(0)
+        prediction = source[:, -1]
+        all_predictions = torch.zeros(batch_size, length)
         with torch.no_grad():
-            h = torch.zeros(seq.size(0), self.hidden_dim).to(device)
-            for _ in range(length):
-                h, output = self.forward(prediction.unsqueeze(1), h)
-                prediction = torch.softmax(output, dim=1).argmax(1)
-                all_predictions.append(code2string(prediction))
-        return all_predictions
+            h = torch.zeros(source.size(0), self.hidden_dim).to(device)
+            for i in range(length):
+                h, output = self.forward(prediction, h)
+                prediction = torch.softmax(output, dim=1).argmax(1).squeeze()
+                all_predictions[:, i] = prediction.squeeze()
+        texts = [code2string(t) for t in all_predictions]
+        return texts
 
 
 if __name__ == "__main__":
@@ -149,6 +155,6 @@ if __name__ == "__main__":
     start = list(lettre2id.keys())
     texts = model.generate(start, MAX_LENGTH)
 
-    print("===============================================")
+    print("")
     for s, text in zip(start, texts):
         print(s + text + "\n")
