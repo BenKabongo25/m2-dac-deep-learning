@@ -6,10 +6,12 @@
 
 import datetime
 import string
+import os
 import sys
 import torch
 import torch.nn as nn
 import unicodedata
+from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
@@ -73,8 +75,8 @@ HIDDEN_DIM = 20
 MAX_LENGTH = 100
 
 LR = 1e-3
-N_EPOCHS = 5
-VERBOSE_EVERY = 1
+N_EPOCHS = 100
+VERBOSE_EVERY = 10
 
 data_trump = DataLoader(
     TrumpDataset(open(PATH+"trump_full_speech.txt","rb").read().decode(),maxlen=1000),
@@ -82,8 +84,15 @@ data_trump = DataLoader(
     shuffle=True
 )
 
+class State:
+    def __init__(self, model, optimizer):
+        self.model = model
+        self.optimizer = optimizer
+        self.epoch = 0
+
 
 writer = SummaryWriter(BASE_PATH + "/runs/exo4/" + datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S"))
+
 
 class TrumpModel(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim):
@@ -101,60 +110,81 @@ class TrumpModel(nn.Module):
         output = self.rnn.decode(hs) # output.size() = (length, batch, vocab_size)
         return hs, output
 
-    def fit(self, dataloader, lr=LR, n_epochs=N_EPOCHS, verbose=True):
-        loss_fn = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
-        for epoch_id in tqdm(range(n_epochs), "Training"):
+def train(state, dataloader, lr=LR, n_epochs=N_EPOCHS, verbose=True, model_path=None):
+    loss_fn = nn.CrossEntropyLoss()
+
+    for epoch_id in tqdm(range(state.epoch, n_epochs), "Training"):
             
+        total_loss = 0
+        for (source, target) in dataloader:
+            source, target = source.to(device), target.to(device)
             total_loss = 0
-            for (source, target) in dataloader:
-                source, target = source.to(device), target.to(device)
-                total_loss = 0
-                h0 = torch.zeros(source.size(0), self.hidden_dim).to(device)
-                _, output = model(source, h0)
-                loss = loss_fn(
-                    output.permute(1, 0, 2).reshape(-1, self.vocab_size), 
-                    target.reshape(-1)
-                )
-                total_loss += loss.item()
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+            h0 = torch.zeros(source.size(0), state.model.hidden_dim).to(device)
+            _, output = state.model(source, h0)
+            loss = loss_fn(
+                output.permute(1, 0, 2).reshape(-1, state.model.vocab_size),
+                target.reshape(-1)
+            )
+            total_loss += loss.item()
+            state.optimizer.zero_grad()
+            loss.backward()
+            state.optimizer.step()
 
-            total_loss /= len(dataloader)
-            writer.add_scalar("Loss/train", total_loss, epoch_id)
+        total_loss /= len(dataloader)
+        writer.add_scalar("Loss/train", total_loss, epoch_id)
 
-            if verbose and epoch_id % VERBOSE_EVERY == 0:
-                print(f"[Epoch {epoch_id + 1}/{n_epochs}] : loss = {total_loss:>8f}")
-                start = list(lettre2id.keys())[:10]
-                texts = model.generate(start, length=50)
-                print()
-                for s, text in zip(start, texts):
-                    print(s + text + "\n")
+        if verbose and epoch_id % VERBOSE_EVERY == 0:
+            print(f"[Epoch {epoch_id + 1}/{n_epochs}] : loss = {total_loss:>8f}")
+            start = list(lettre2id.keys())[:10]
+            texts = generate(state.model, start, length=100)
+            print()
+            for s, text in zip(start, texts):
+                print(s + text + "\n")
 
-    def generate(self, start=[''], length=MAX_LENGTH):
-        source = torch.tensor([[lettre2id[c]] for c in start])
-        batch_size = source.size(0)
-        prediction = source[:, -1]
-        all_predictions = torch.zeros(batch_size, length)
-        with torch.no_grad():
-            h = torch.zeros(source.size(0), self.hidden_dim).to(device)
-            for i in range(length):
-                h, output = self.forward(prediction, h)
-                prediction = torch.softmax(output, dim=1).argmax(1).squeeze()
-                all_predictions[:, i] = prediction.squeeze()
-        texts = [code2string(t) for t in all_predictions]
-        return texts
+        state.epoch = epoch_id + 1
+        if model_path and model_path.is_file():
+            with model_path.open("wb") as fp:
+                torch.save(state, fp)
+
+
+def generate(model, start=[''], length=MAX_LENGTH):
+    source = torch.tensor([[lettre2id[c]] for c in start])
+    batch_size = source.size(0)
+    prediction = source[:, -1].squeeze()
+    all_predictions = torch.zeros(batch_size, length)
+    with torch.no_grad():
+        h = torch.zeros(source.size(0), model.hidden_dim).to(device)
+        for i in range(length):
+            h, output = model.forward(prediction, h)
+            prediction = torch.softmax(output.squeeze(), dim=1).argmax(1).squeeze()
+            all_predictions[:, i] = prediction
+    texts = [code2string(t) for t in all_predictions]
+    return texts
 
 
 if __name__ == "__main__":
-    model = TrumpModel(VOCAB_SIZE, EMBEDDING_DIM, HIDDEN_DIM).to(device)
-    model.fit(data_trump, LR, N_EPOCHS, verbose=True)
+    MODEL_PATH = BASE_PATH + "/models/"
+    os.makedirs(MODEL_PATH, exist_ok=True)
+    MODEL_PATH += "trump_model.pch"
+    load_model = False
+
+    model_path = Path(MODEL_PATH)
+    if load_model and model_path.is_file():
+        if model_path.is_file():
+            with model_path.open("rb") as fp:
+                state = torch.load(fp)
+    else :
+        model = TrumpModel(VOCAB_SIZE, EMBEDDING_DIM, HIDDEN_DIM).to(device)
+        model = model.to(device) 
+        optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+        state = State(model, optimizer)
+
+    train(state, data_trump, LR, N_EPOCHS, verbose=True)
     
     start = list(lettre2id.keys())
-    texts = model.generate(start, MAX_LENGTH)
-
+    texts = generate(state.model, start, MAX_LENGTH)
     print("")
     for s, text in zip(start, texts):
         print(s + text + "\n")
+
