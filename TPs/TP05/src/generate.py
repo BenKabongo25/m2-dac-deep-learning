@@ -119,7 +119,7 @@ def _generate_node_nucleus(model, alpha, node, max_length):
 def generate_beam(model, K, start='', max_length=200, nucleus=False, alpha=.95):
     """ Génération avec du Beam Search """
 
-    root = [BeamTree(lettre2id[start], 0)]
+    root = BeamTree(lettre2id[start], 0)
     if not nucleus:
         root = _generate_node(model, K, root, max_length)
     else:
