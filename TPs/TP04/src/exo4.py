@@ -68,15 +68,15 @@ class TrumpDataset(Dataset):
 BASE_PATH = "TPS/TP04/"
 PATH = BASE_PATH + "data/"
 
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 VOCAB_SIZE = len(lettre2id)
-EMBEDDING_DIM = 30
-HIDDEN_DIM = 20
+EMBEDDING_DIM = 50
+HIDDEN_DIM = 40
 MAX_LENGTH = 100
 
-LR = 1e-3
+LR = 1e-2
 N_EPOCHS = 100
-VERBOSE_EVERY = 10
+VERBOSE_EVERY = 5
 
 data_trump = DataLoader(
     TrumpDataset(open(PATH+"trump_full_speech.txt","rb").read().decode(),maxlen=1000),
@@ -143,9 +143,8 @@ def train(state, dataloader, lr=LR, n_epochs=N_EPOCHS, verbose=True, model_path=
                 print(s + text + "\n")
 
         state.epoch = epoch_id + 1
-        if model_path and model_path.is_file():
-            with model_path.open("wb") as fp:
-                torch.save(state, fp)
+        with model_path.open("wb") as fp:
+            torch.save(state, fp)
 
 
 def generate(model, start=[''], length=MAX_LENGTH):
@@ -179,12 +178,13 @@ if __name__ == "__main__":
         model = model.to(device) 
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)
         state = State(model, optimizer)
+        with model_path.open("wb") as fp:
+            torch.save(state, fp)
 
-    train(state, data_trump, LR, N_EPOCHS, verbose=True)
+    train(state, data_trump, LR, N_EPOCHS, verbose=True, model_path=model_path)
     
     start = list(lettre2id.keys())
     texts = generate(state.model, start, MAX_LENGTH)
     print("")
     for s, text in zip(start, texts):
         print(s + text + "\n")
-
