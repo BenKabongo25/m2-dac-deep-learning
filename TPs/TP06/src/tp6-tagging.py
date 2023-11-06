@@ -190,7 +190,7 @@ def train(
         writer.add_scalar("Loss/dev", dev_loss, epoch)
         writer.add_scalar("Accuracy/dev", dev_acc, epoch)
         if epoch % (n_epochs // 10) == 0:
-            logging.info(f"[Epoch {epoch}] train : loss = {train_loss:.2f}, dev : loss = {dev_loss:2f}, acc = {dev_acc:.2f}")
+            logging.info(f"[Epoch {epoch}] train : loss = {train_loss:.2f}, dev : loss = {dev_loss:.2f}, acc = {dev_acc:.2f}")
     test_loss, test_acc = validate(model, loss_fn, accuracy_fn, test_loader)
     logging.info(f"Test : loss = {test_loss:.2f}, acc = {test_acc:.2f}")
 
