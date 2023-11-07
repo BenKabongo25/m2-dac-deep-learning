@@ -224,10 +224,10 @@ def main():
     test_loader = DataLoader(test_dataset, collate_fn=collate_fn, batch_size=BATCH_SIZE)
 
 
-    EMBEDDING_DIM=40
-    HIDDEN_SIZE=30
+    EMBEDDING_DIM=512
+    HIDDEN_SIZE=256
     NUM_LAYERS=2
-    DROPOUT=0
+    DROPOUT=0.25
 
     model = TaggingModel(
         n_words=len(words), 
