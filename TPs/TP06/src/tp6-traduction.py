@@ -1,3 +1,9 @@
+# AMAL Master DAC
+# Novembre 2023
+
+# Ben Kabongo
+# M2 MVA
+
 import logging
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
@@ -107,24 +113,55 @@ def collate_fn(batch):
     return pad_sequence(orig),o_len,pad_sequence(dest),d_len
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+class Encoder(nn.Module):
+    def __init__(self, n_tokens, embedding_dim, hidden_size, padding_idx=0, num_layers=1, dropout=0):
+        super().__init__()
+        self.embedding = nn.Embedding(n_tokens, embedding_dim, padding_idx)
+        self.rnn = nn.GRU(embedding_dim, hidden_size, num_layers=num_layers, dropout=dropout, batch_first=True)
+
+    def forward(self, X):
+        embedded = self.embedding(X)
+        _, h_n = self.rnn(embedded)
+        return h_n
 
 
-with open(FILE) as f:
-    lines = f.readlines()
+class Decoder(nn.Module):
+    def __init__(self, n_tokens, embedding_dim, hidden_size, padding_idx=0, num_layers=1, dropout=0):
+        super().__init__()
+        self.embedding = nn.Embedding(n_tokens, embedding_dim, padding_idx)
+        self.rnn = nn.GRU(embedding_dim, hidden_size, num_layers=num_layers, dropout=dropout, batch_first=True)
+        self.fc = nn.Linear(hidden_size, n_tokens)
 
-lines = [lines[x] for x in torch.randperm(len(lines))]
-idxTrain = int(0.8*len(lines))
+    def forward(self, X, h):
+        embedded = self.embedding(X)
+        _, h_n = self.rnn(embedded, h)
+        output = self.fc(h_n)
+        return output
 
-vocEng = Vocabulary(True)
-vocFra = Vocabulary(True)
-MAX_LEN=100
-BATCH_SIZE=100
+    def generate(self, hidden, length=None):
+        index = 0
+        while index != length:
+            index += 1
 
-datatrain = TradDataset("".join(lines[:idxTrain]),vocEng,vocFra,max_len=MAX_LEN)
-datatest = TradDataset("".join(lines[idxTrain:]),vocEng,vocFra,max_len=MAX_LEN)
 
-train_loader = DataLoader(datatrain, collate_fn=collate_fn, batch_size=BATCH_SIZE, shuffle=True)
-test_loader = DataLoader(datatest, collate_fn=collate_fn, batch_size=BATCH_SIZE, shuffle=True)
+def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    with open(FILE) as f:
+        lines = f.readlines()
+
+    lines = [lines[x] for x in torch.randperm(len(lines))]
+    idxTrain = int(0.8*len(lines))
+
+    vocEng = Vocabulary(True)
+    vocFra = Vocabulary(True)
+    MAX_LEN=100
+    BATCH_SIZE=100
+
+    datatrain = TradDataset("".join(lines[:idxTrain]),vocEng,vocFra,max_len=MAX_LEN)
+    datatest = TradDataset("".join(lines[idxTrain:]),vocEng,vocFra,max_len=MAX_LEN)
+
+    train_loader = DataLoader(datatrain, collate_fn=collate_fn, batch_size=BATCH_SIZE, shuffle=True)
+    test_loader = DataLoader(datatest, collate_fn=collate_fn, batch_size=BATCH_SIZE, shuffle=True)
 
 #  TODO:  Implémenter l'encodeur, le décodeur et la boucle d'apprentissage

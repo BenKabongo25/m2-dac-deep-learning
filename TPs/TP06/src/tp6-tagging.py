@@ -22,10 +22,6 @@ from typing import List
 logging.basicConfig(level=logging.INFO)
 
 
-
-# Format de sortie décrit dans
-# https://pypi.org/project/conllu/
-
 class Vocabulary:
     """Permet de gérer un vocabulaire.
 

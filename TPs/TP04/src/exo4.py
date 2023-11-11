@@ -119,7 +119,6 @@ def train(state, dataloader, lr=LR, n_epochs=N_EPOCHS, verbose=True, model_path=
         total_loss = 0
         for (source, target) in dataloader:
             source, target = source.to(device), target.to(device)
-            total_loss = 0
             h0 = torch.zeros(source.size(0), state.model.hidden_dim).to(device)
             _, output = state.model(source, h0)
             loss = loss_fn(
