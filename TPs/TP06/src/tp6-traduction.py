@@ -9,13 +9,10 @@ import logging
 import random
 import re
 import string
-import time
 import torch
 import unicodedata
 import torch.nn as nn
 import torch.optim as optim
-import torchmetrics
-from pathlib import Path
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -73,7 +70,7 @@ class Vocabulary:
         return [self.getword(i) for i in idx]
 
 
-class TradDataset():
+class TradDataset(Dataset):
     def __init__(self, data, vocOrig, vocDest, adding=True, max_len=10):
         self.sentences = []
         for s in tqdm(data.split("\n")):
@@ -115,7 +112,6 @@ class Encoder(nn.Module):
     def forward(self, X):
         embedded = self.embedding(X)
         _, h_n = self.rnn(embedded)
-        #print(f">>> Encoder : X = {X.shape}, h_n = {h_n.shape}")
         return h_n
 
 
@@ -131,13 +127,9 @@ class Decoder(nn.Module):
         self.fc = nn.Linear(hidden_size, n_tokens).to(device)
 
     def forward(self, X, h):
-        #print(f">>> Decoder : X = {X.shape}, h = {h.shape} ", end="")
         embedded = self.embedding(X).unsqueeze(1)
-        #print(f"embedded = {embedded.shape} ", end="")
         _, h_n = self.rnn(embedded, h)
-        #print(f"h_n = {h_n.shape} ", end="")
         output = self.fc(h_n)
-        #print(f"output = {output.shape}")
         return h_n, output
 
     def generate(self, hidden, length=None, constraint_mode=True, target=None, train=False):
@@ -175,14 +167,12 @@ class TraductionModel(nn.Module):
                             sos_idx=dest_vocab.SOS, eos_idx=dest_vocab.EOS, device=device)
 
     def forward(self, source, target, max_length, constraint_mode=True, train=True):
-        #print(f">>> Constraint mode = {constraint_mode}, train = {train}")
         source_h_n = self.encoder(source)
         if train: max_length = target.size(1)
         logits = self.decoder.generate(source_h_n, max_length, constraint_mode, target, train)
         return logits
 
     def predict(self, source_text, max_length=20):
-        #print(">>> Prédiction")
         source_text = normalize(source_text)
         source = torch.tensor(
                     [self.source_vocab.get(o) for o in source_text.split(" ")] +
